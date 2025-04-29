@@ -366,9 +366,46 @@ local function CreateItemDrop(index)
     end
 end
 
---#endregion Functions
+---Gets the closest player to the client
+---@return number | nil closestPlayer The server ID of the closest player, or nil if no player is found
+local function GetClosestPlayer()
+    local players = QBCore.Functions.GetPlayers()
+    local closestDistance = -1
+    local closestPlayer = -1
+    local coords = GetEntityCoords(PlayerPedId())
+    local coords2 = nil
+    local distance = 0
 
---#region Events
+    for _, player in pairs(players) do
+        local ped = GetPlayerPed(player)
+        if ped ~= PlayerPedId() then
+            coords2 = GetEntityCoords(ped)
+            distance = #(coords - coords2)
+            if closestDistance == -1 or closestDistance > distance then
+                closestPlayer = player
+                closestDistance = distance
+            end
+        end
+    end
+
+    if closestDistance ~= -1 and closestDistance <= 1.0 then
+        return closestPlayer
+    end
+    return nil
+end
+
+local function GiveItemToPlayer(itemData, amount)
+    local closestPlayer = GetClosestPlayer()
+    if closestPlayer then
+        local targetId = GetPlayerServerId(closestPlayer)
+        if targetId then
+            TriggerServerEvent('inventory:server:PlayerGiveItem', targetId, itemData, amount)
+        end
+    else
+        QBCore.Functions.Notify('No one nearby to give items to', 'error')
+    end
+    closeInventory()
+end
 
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
     LocalPlayer.state:set('inv_busy', false, true)
@@ -420,14 +457,6 @@ RegisterNetEvent('inventory:client:CheckOpenState', function(type, id, label)
             TriggerServerEvent('inventory:server:SetIsOpenState', false, type, id)
         end
     end
-end)
-
-RegisterNetEvent('inventory:client:ItemBox', function(itemData, type)
-    SendNUIMessage({
-        action = 'itemBox',
-        item = itemData,
-        type = type
-    })
 end)
 
 RegisterNetEvent('inventory:client:requiredItems', function(items, bool)
@@ -923,18 +952,9 @@ RegisterNUICallback('PlayDropFail', function(_, cb)
 end)
 
 RegisterNUICallback('GiveItem', function(data, cb)
-    local player, distance = QBCore.Functions.GetClosestPlayer(GetEntityCoords(PlayerPedId()))
-    if player ~= -1 and distance < 3 then
-        if data.inventory == 'player' then
-            local playerId = GetPlayerServerId(player)
-            SetCurrentPedWeapon(PlayerPedId(), 'WEAPON_UNARMED', true)
-            TriggerServerEvent('inventory:server:GiveItem', playerId, data.item.name, data.amount, data.item.slot)
-        else
-            QBCore.Functions.Notify(Lang:t('notify.notowned'), 'error')
-        end
-    else
-        QBCore.Functions.Notify(Lang:t('notify.nonb'), 'error')
-    end
+    local itemData = data.item
+    local amount = tonumber(data.amount) or 1
+    GiveItemToPlayer(itemData, amount)
     cb('ok')
 end)
 
@@ -1085,3 +1105,13 @@ CreateThread(function()
 end)
 
 --#endregion Threads
+
+-- Remove all ItemGiven/ItemReceived events since we'll handle notifications from server
+RegisterNetEvent('inventory:client:ItemBox')
+AddEventHandler('inventory:client:ItemBox', function(itemData, type)
+    SendNUIMessage({
+        action = "itemBox",
+        item = itemData,
+        type = type
+    })
+end)

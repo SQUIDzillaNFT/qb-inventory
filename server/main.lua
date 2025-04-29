@@ -178,11 +178,18 @@ local function AddItem(source, item, amount, slot, info)
 	slot = tonumber(slot) or GetFirstSlotByItem(Player.PlayerData.items, item)
 	info = info or {}
 
+
 	if itemInfo['type'] == 'weapon' then
 		info.serie = info.serie or tostring(QBCore.Shared.RandomInt(2) .. QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) .. QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
 		info.quality = info.quality or 100
 	end
 	if (totalWeight + (itemInfo['weight'] * amount)) <= Config.MaxInventoryWeight then
+
+--here -----------------------------
+if exports["yseries"]:VerifyPhoneItemName(item) then
+	TriggerClientEvent('yseries:phone-item-added', source)
+end
+
 		if (slot and Player.PlayerData.items[slot]) and (Player.PlayerData.items[slot].name:lower() == item:lower()) and (itemInfo['type'] == 'item' and not itemInfo['unique']) then
 			Player.PlayerData.items[slot].amount = Player.PlayerData.items[slot].amount + amount
 			Player.Functions.SetPlayerData('items', Player.PlayerData.items)
@@ -236,6 +243,10 @@ local function RemoveItem(source, item, amount, slot)
 
 	amount = tonumber(amount) or 1
 	slot = tonumber(slot)
+
+	if exports["yseries"]:VerifyPhoneItemName(item) then
+		TriggerClientEvent('yseries:phone-item-removed', source)
+	end
 
 	if slot then
 		if not Player.PlayerData.items[slot] then
@@ -1360,6 +1371,14 @@ AddEventHandler('onResourceStart', function(resourceName)
 	end
 end)
 
+QBCore.Functions.CreateCallback('qb-phone:server:HasPhone', function(source, cb)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return cb(false) end
+    
+    local hasPhone = Player.Functions.GetItemByName('phone')
+    cb(hasPhone ~= nil)
+end)
+
 RegisterNetEvent('QBCore:Server:UpdateObject', function()
 	if source ~= '' then return end -- Safety check if the event was not called from the server.
 	QBCore = exports['qb-core']:GetCoreObject()
@@ -1659,7 +1678,6 @@ RegisterNetEvent('inventory:server:OpenInventory', function(name, id, other)
 			end
 		end
 		TriggerClientEvent('qb-inventory:client:closeinv', id)
-		Wait(0)
 		TriggerClientEvent('inventory:client:OpenInventory', src, {}, Player.PlayerData.items, secondInv)
 	else
 		TriggerClientEvent('inventory:client:OpenInventory', src, {}, Player.PlayerData.items)
@@ -1990,7 +2008,7 @@ RegisterNetEvent('inventory:server:SetInventoryData', function(fromInventory, to
 					if toItemData.name ~= fromItemData.name then
 						RemoveItem(src, toItemData.name, toAmount, toSlot)
 						AddToGlovebox(plate, fromSlot, toSlot, itemInfo['name'], toAmount, toItemData.info)
-						TriggerEvent('qb-log:server:CreateLog', 'glovebox', 'Swapped', 'orange', '**' .. GetPlayerName(src) .. '** (citizenid: *' .. Player.PlayerData.citizenid .. '* | id: *' .. src .. ')* swapped item; name: **' .. toItemData.name .. '**, amount: **' .. toAmount .. '** with item; name: **' .. itemInfo['name'] .. '**, amount: **' .. toAmount .. '** plate: *' .. plate .. '*')
+						TriggerEvent('qb-log:server:CreateLog', 'glovebox', 'Swapped Item', 'orange', '**' .. GetPlayerName(src) .. '** (citizenid: *' .. Player.PlayerData.citizenid .. '* | id: *' .. src .. '*) swapped item; name: **' .. itemInfo['name'] .. '**, amount: **' .. toAmount .. '** with name: **' .. fromItemData.name .. '**, amount: **' .. fromAmount .. '** - plate: *' .. plate .. '*')
 					else
 						TriggerEvent('qb-log:server:CreateLog', 'glovebox', 'Stacked Item', 'orange', '**' .. GetPlayerName(src) .. '** (citizenid: *' .. Player.PlayerData.citizenid .. '* | id: *' .. src .. '*) stacked item; name: **' .. toItemData.name .. '**, amount: **' .. toAmount .. '** from plate: *' .. plate .. '*')
 					end
@@ -2515,6 +2533,187 @@ end)
 
 --#endregion Items
 
+
+---------------------------------------------------
+--------------- ADDON C8RE GANGS ------------------
+---------------------------------------------------
+
+---Check If item can be added to the stash
+---@param stashid number stash id / stash name
+---@param item string The item to add to the inventory
+---@param amount? number The amount of the item to add
+---@param slots? number of slot of the stash if it s not exist
+---@param maxWeight? number of slot of the stash if it s not existmax height of the stash
+---@return boolean success Returns true if the item can be added, false it the item cannot be added
+local function StashCanCarryItem(stashid, item, amount, slots, maxWeight)
+
+	local Stash = Stashes[stashid];
+	if not Stash then
+		Stashes[stashid] = {}
+		
+		local items = GetStashItems(stashid)
+		if next(items) then
+			Stashes[stashid].items = items
+		else
+			Stashes[stashid].items = {}
+		end
+
+		Stashes[stashid].isOpen = false
+		Stashes[stashid].label = "Stash-"..stashid
+		Stashes[stashid].slot = tonumber(slots) or tonumber(10)
+		Stashes[stashid].maxWeight = tonumber(maxWeight) or tonumber(1000000)
+	end
+
+	local totalWeight = GetTotalWeight(Stashes[stashid].items)
+	local itemInfo = QBCore.Shared.Items[item:lower()]
+	if not itemInfo then
+		print("^1[ERROR] Item does not exist^7", item:lower())
+		return false
+	end
+
+	amount = tonumber(amount) or 1
+
+	if (totalWeight + ((itemInfo['weight'] or 100) * amount)) > (Stashes[stashid].maxWeight or tonumber(maxWeight) or tonumber(1000000)) then
+		return false
+	end
+	return true
+end
+
+exports("StashCanCarryItem", StashCanCarryItem)
+
+---Add an item to the inventory of the player
+---@param source number The source of the player
+---@param item string The item to add to the inventory
+---@param amount? number The amount of the item to add
+---@param slot? number The slot to add the item to
+---@param info? table Extra info to add onto the item to use whenever you get the item
+---@param slots? number of slot of the stash if it s not exist
+---@param maxWeight? number of slot of the stash if it s not existmax height of the stash
+---@return boolean success Returns true if the item was added, false it the item couldn't be added
+local function AddItemIntoStash(stashid, item, amount, slot, info, slots, maxWeight)
+	local Stash = Stashes[stashid];
+	if not Stash then
+		Stashes[stashid] = {}
+		
+		local items = GetStashItems(stashid)
+		if next(items) then
+			Stashes[stashid].items = items
+		else
+			Stashes[stashid].items = {}
+		end
+
+		Stashes[stashid].isOpen = false
+		Stashes[stashid].label = "Stash-"..stashid
+		Stashes[stashid].slot = tonumber(slots) or tonumber(10)
+		Stashes[stashid].maxWeight = tonumber(maxWeight) or tonumber(1000000)
+	end
+
+	local totalWeight = GetTotalWeight(Stashes[stashid].items)
+	local itemInfo = QBCore.Shared.Items[item:lower()]
+	if not itemInfo then
+		print("^1[ERROR] Item does not exist^7", item:lower())
+		return false
+	end
+
+	amount = tonumber(amount) or 1
+	slot = tonumber(slot) or GetFirstSlotByItem(Stashes[stashid].items, item)
+	info = info or {}
+
+	if itemInfo['type'] == 'weapon' then
+		info.serie = info.serie or tostring(QBCore.Shared.RandomInt(2) .. QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) .. QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
+		info.quality = info.quality or 100
+	end
+
+	if (slot and Stashes[stashid].items[slot]) and (Stashes[stashid].items[slot].name:lower() == item:lower()) and (itemInfo['type'] == 'item' and not itemInfo['unique']) then
+		Stashes[stashid].items[slot].amount = Stashes[stashid].items[slot].amount + amount
+		SaveStashItems(stashid, Stashes[stashid].items);
+		return true
+	elseif not itemInfo['unique'] and slot or slot and Stashes[stashid].items[slot] == nil then
+		Stashes[stashid].items[slot] = { name = itemInfo['name'], amount = amount, info = info or '', label = itemInfo['label'], description = itemInfo['description'] or '', weight = itemInfo['weight'], type = itemInfo['type'], unique = itemInfo['unique'], useable = itemInfo['useable'], image = itemInfo['image'], shouldClose = itemInfo['shouldClose'], slot = slot, combinable = itemInfo['combinable'] }
+		SaveStashItems(stashid, Stashes[stashid].items);
+		return true
+	elseif itemInfo['unique'] or (not slot or slot == nil) or itemInfo['type'] == 'weapon' then
+		for i = 1, Config.MaxInventorySlots, 1 do -- TO REVIEW
+			if Stashes[stashid].items[i] == nil then
+				Stashes[stashid].items[i] = { name = itemInfo['name'], amount = amount, info = info or '', label = itemInfo['label'], description = itemInfo['description'] or '', weight = itemInfo['weight'], type = itemInfo['type'], unique = itemInfo['unique'], useable = itemInfo['useable'], image = itemInfo['image'], shouldClose = itemInfo['shouldClose'], slot = i, combinable = itemInfo['combinable'] }
+				SaveStashItems(stashid, Stashes[stashid].items);	
+				return true
+			end
+		end
+	end
+	return false
+end
+
+exports("AddItemIntoStash", AddItemIntoStash)
+
+---Remove an item from the inventory of the player
+---@param source number The source of the player
+---@param item string The item to remove from the inventory
+---@param amount? number The amount of the item to remove
+---@param slot? number The slot to remove the item from
+---@return boolean success Returns true if the item was remove, false it the item couldn't be removed
+local function RemoveItemIntoStash(stashid, item, amount, slot, slots, maxWeight)
+	local Stash = Stashes[stashid];
+
+	if not Stash then
+		Stashes[stashid] = {}
+		
+		local items = GetStashItems(stashid)
+		if next(items) then
+			Stashes[stashid].items = items
+		else
+			Stashes[stashid].items = {}
+		end
+
+		Stashes[stashid].isOpen = false
+		Stashes[stashid].label = "Stash-"..stashid
+		Stashes[stashid].slot = tonumber(slots) or tonumber(10)
+		Stashes[stashid].maxWeight = tonumber(maxWeight) or tonumber(1000000)
+	end
+
+	amount = tonumber(amount) or 1
+	slot = tonumber(slot)
+
+	if slot then
+		if Stashes[stashid].items[slot].amount > amount then
+			Stashes[stashid].items[slot].amount = Stashes[stashid].items[slot].amount - amount
+
+			SaveStashItems(stashid, Stashes[stashid].items);
+			return true
+
+		elseif Stashes[stashid].items[slot].amount == amount then
+			Stashes[stashid].items[slot] = nil
+			SaveStashItems(stashid, Stashes[stashid].items);
+			return true
+		end
+	else
+		local slots = GetSlotsByItem(Stashes[stashid].items, item)
+		local amountToRemove = amount
+
+		if not slots then return false end
+
+		for _, _slot in pairs(slots) do
+			if Stashes[stashid].items[_slot].amount > amountToRemove then
+				Stashes[stashid].items[_slot].amount = Stashes[stashid].items[_slot].amount - amountToRemove
+				return true
+			elseif Stashes[stashid].items[_slot].amount == amountToRemove then
+				Stashes[stashid].items[_slot] = nil
+				SaveStashItems(stashid, Stashes[stashid].items);
+				return true
+			end
+		end
+	end
+	return false
+end
+
+exports("RemoveItemIntoStash", RemoveItemIntoStash)
+
+---------------------------------------------------
+---------------------------------------------------
+---------------------------------------------------
+
+
+
 --#region Threads
 
 CreateThread(function()
@@ -2530,3 +2729,153 @@ CreateThread(function()
 end)
 
 --#endregion Threads
+
+---Gives an item from one player to another
+---@param source number The source of the player giving the item
+---@param target number The source of the player receiving the item
+---@param itemData table The item data to give
+---@param amount number The amount of the item to give
+RegisterNetEvent('inventory:server:GiveItem', function(target, itemData, amount)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local Target = QBCore.Functions.GetPlayer(target)
+
+    if not Player or not Target then return end
+
+    -- Check if player has the item
+    local hasItem = false
+    local itemSlot = nil
+    for slot, item in pairs(Player.PlayerData.items) do
+        if item.name == itemData.name then
+            hasItem = true
+            itemSlot = slot
+            break
+        end
+    end
+
+    if not hasItem then
+        TriggerClientEvent('QBCore:Notify', src, 'You don\'t have this item', 'error')
+        return
+    end
+
+    -- Check if player has enough of the item
+    if Player.PlayerData.items[itemSlot].amount < amount then
+        TriggerClientEvent('QBCore:Notify', src, 'You don\'t have enough of this item', 'error')
+        return
+    end
+
+    -- Remove item from source player
+    Player.PlayerData.items[itemSlot].amount = Player.PlayerData.items[itemSlot].amount - amount
+    if Player.PlayerData.items[itemSlot].amount <= 0 then
+        Player.PlayerData.items[itemSlot] = nil
+    end
+    Player.Functions.SetPlayerData('items', Player.PlayerData.items)
+
+    -- Add item to target player
+    local targetItem = {
+        name = itemData.name,
+        amount = amount,
+        info = itemData.info,
+        label = itemData.label,
+        description = itemData.description,
+        weight = itemData.weight,
+        type = itemData.type,
+        unique = itemData.unique,
+        useable = itemData.useable,
+        image = itemData.image,
+        shouldClose = itemData.shouldClose,
+        slot = GetFirstSlotByItem(Target.PlayerData.items, itemData.name),
+        combinable = itemData.combinable
+    }
+
+    if Target.Functions.AddItem(itemData.name, amount, targetItem.slot, targetItem.info) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[itemData.name], 'remove')
+        TriggerClientEvent('inventory:client:ItemBox', target, QBCore.Shared.Items[itemData.name], 'add')
+        TriggerClientEvent('QBCore:Notify', src, 'You gave ' .. amount .. 'x ' .. itemData.label .. ' to ' .. GetPlayerName(target), 'success')
+    else
+        -- If target player can't receive the item, give it back to source player
+        Player.Functions.AddItem(itemData.name, amount, itemSlot, itemData.info)
+        TriggerClientEvent('QBCore:Notify', src, 'Player cannot receive this item', 'error')
+    end
+end)
+
+RegisterNetEvent('inventory:server:GiveItem')
+AddEventHandler('inventory:server:GiveItem', function(target, itemData, amount)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local Target = QBCore.Functions.GetPlayer(target)
+    
+    if not Player or not Target then return end
+    
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return end
+    
+    -- Check if source player has the item
+    local item = Player.Functions.GetItemByName(itemData.name)
+    if not item then return end
+    
+    -- Check if source player has enough of the item
+    if item.amount < amount then
+        TriggerClientEvent('QBCore:Notify', src, 'You don\'t have enough of this item', 'error')
+        return
+    end
+    
+    -- Remove item from source player first
+    if Player.Functions.RemoveItem(itemData.name, amount, itemData.slot) then
+        -- If successful, add to target player
+        if Target.Functions.AddItem(itemData.name, amount, nil, itemData.info) then
+            -- Send single notification to each player using character first name
+            TriggerClientEvent('QBCore:Notify', src, 'Gave ' .. amount .. 'x ' .. itemData.label .. ' to ' .. Target.PlayerData.charinfo.firstname, 'success')
+            TriggerClientEvent('QBCore:Notify', target, 'Received ' .. amount .. 'x ' .. itemData.label .. ' from ' .. Player.PlayerData.charinfo.firstname, 'success')
+            
+            -- Update inventories
+            TriggerClientEvent('inventory:client:UpdatePlayerInventory', src, true)
+            TriggerClientEvent('inventory:client:UpdatePlayerInventory', target, true)
+        else
+            -- If target couldn't receive item, give it back to source
+            Player.Functions.AddItem(itemData.name, amount, itemData.slot, itemData.info)
+            TriggerClientEvent('QBCore:Notify', src, 'Target inventory is full', 'error')
+        end
+    end
+end)
+
+RegisterNetEvent('inventory:server:PlayerGiveItem')
+AddEventHandler('inventory:server:PlayerGiveItem', function(target, itemData, amount)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local Target = QBCore.Functions.GetPlayer(target)
+    
+    if not Player or not Target then return end
+    
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return end
+    
+    -- Check if source player has the item
+    local item = Player.Functions.GetItemByName(itemData.name)
+    if not item then return end
+    
+    -- Check if source player has enough of the item
+    if item.amount < amount then
+        TriggerClientEvent('QBCore:Notify', src, 'You don\'t have enough of this item', 'error')
+        return
+    end
+    
+    -- Remove item from source player first
+    if Player.Functions.RemoveItem(itemData.name, amount, itemData.slot) then
+        -- If successful, add to target player
+        if Target.Functions.AddItem(itemData.name, amount, nil, itemData.info) then
+            -- Send single notification to source player
+            TriggerClientEvent('QBCore:Notify', src, 'Gave ' .. amount .. 'x ' .. itemData.label .. ' to ' .. Target.PlayerData.charinfo.firstname, 'success')
+            -- Send notification to target player
+            TriggerClientEvent('QBCore:Notify', target, 'Received ' .. amount .. 'x ' .. itemData.label .. ' from ' .. Player.PlayerData.charinfo.firstname, 'success')
+            
+            -- Update inventories
+            TriggerClientEvent('inventory:client:UpdatePlayerInventory', src, true)
+            TriggerClientEvent('inventory:client:UpdatePlayerInventory', target, true)
+        else
+            -- If target couldn't receive item, give it back to source
+            Player.Functions.AddItem(itemData.name, amount, itemData.slot, itemData.info)
+            TriggerClientEvent('QBCore:Notify', src, 'Target inventory is full', 'error')
+        end
+    end
+end)

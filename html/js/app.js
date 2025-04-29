@@ -593,11 +593,8 @@ function handleDragDrop() {
         cancel: ".item-nodrag",
         start: function(event, ui) {
             IsDragging = true;
-            // $(this).css("background", "rgba(20,20,20,1.0)");
             $(this).find("img").css("filter", "brightness(50%)");
-
             $(".item-slot").css("border", "0.0625rem solid rgba(255, 255, 255, 0.1)");
-
             var itemData = $(this).data("item");
             var dragAmount = $("#item-amount").val();
             if (!itemData.useable) {
@@ -760,6 +757,28 @@ function handleDragDrop() {
                     })
                 );
             }
+        },
+    });
+
+    $("#item-give").droppable({
+        hoverClass: "button-hover",
+        drop: function(event, ui) {
+            setTimeout(function() {
+                IsDragging = false;
+            }, 300);
+            fromData = ui.draggable.data("item");
+            fromInventory = ui.draggable.parent().attr("data-inventory");
+            amount = $("#item-amount").val();
+            if (amount == 0) {
+                amount = fromData.amount;
+            }
+            $.post(
+                "https://qb-inventory/GiveItem",
+                JSON.stringify({
+                    item: fromData,
+                    amount: parseInt(amount),
+                })
+            );
         },
     });
 
@@ -2934,4 +2953,57 @@ $(document).on("click", "#rob-money", function(e) {
         })
     );
     $("#rob-money").remove();
+});
+
+$(document).on("click", "#item-use", function(e) {
+    e.preventDefault();
+    if (ClickedItemData.name !== undefined) {
+        $.post(
+            "https://qb-inventory/UseItem",
+            JSON.stringify({
+                inventory: "player",
+                item: ClickedItemData,
+            })
+        );
+    }
+});
+
+$(document).on("click", "#item-give", function(e) {
+    e.preventDefault();
+    if (ClickedItemData.name !== undefined) {
+        var amount = parseInt($("#item-amount").val()) || 1;
+        $.post(
+            "https://qb-inventory/GiveItem",
+            JSON.stringify({
+                item: ClickedItemData,
+                amount: amount
+            })
+        );
+    }
+});
+
+$(document).on("dragover", "#item-give", function(e) {
+    e.preventDefault();
+    $(this).addClass("inv-option-item-hover");
+});
+
+$(document).on("dragleave", "#item-give", function(e) {
+    e.preventDefault();
+    $(this).removeClass("inv-option-item-hover");
+});
+
+$(document).on("drop", "#item-give", function(e) {
+    e.preventDefault();
+    $(this).removeClass("inv-option-item-hover");
+    var itemData = $(e.originalEvent.target).closest('.item-drag').data("item");
+    if (itemData && itemData.name !== undefined) {
+        var amount = parseInt($("#item-amount").val()) || 1;
+        $.post(
+            "https://qb-inventory/GiveItem",
+            JSON.stringify({
+                item: itemData,
+                amount: amount
+            })
+        );
+    }
 });

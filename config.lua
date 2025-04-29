@@ -64,7 +64,7 @@ Config.TrunkSpace = {
     },
     [2] = { -- SUVs
         slots = 50,
-        maxWeight = 75000
+        maxWeight = 750000
     },
     [3] = { -- Coupes
         slots = 35,
@@ -91,12 +91,12 @@ Config.TrunkSpace = {
         maxWeight = 15000
     },
     [9] = { -- Off-road
-        slots = 35,
-        maxWeight = 60000
+        slots = 40,
+        maxWeight = 750000
     },
     [12] = { -- Vans
         slots = 35,
-        maxWeight = 120000
+        maxWeight = 750000
     },
     [13] = { -- Cycles
         slots = 0,
