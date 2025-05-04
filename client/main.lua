@@ -887,6 +887,7 @@ RegisterNUICallback('CloseInventory', function(_, cb)
     elseif CurrentGlovebox ~= nil then
         TriggerServerEvent('inventory:server:SaveInventory', 'glovebox', CurrentGlovebox)
         CurrentGlovebox = nil
+        currentOtherInventory = nil
     elseif CurrentStash ~= nil then
         TriggerServerEvent('inventory:server:SaveInventory', 'stash', CurrentStash)
         CurrentStash = nil
